@@ -1,14 +1,8 @@
-// The Starlight Job — hand-in program (Node 22, standard library only).
-//
-// It gathers the game (game/) and its screenshots (screenshots/) from beside
-// this file into the output directory and writes dossier.json with the
-// vendored make.fun library, exactly the summary the judge reads. The program
-// is deterministic: the same repository always writes the same bytes.
-//
-// Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// The Starlight Job — a top-down stealth heist game.
+// Deterministic: the same repo always writes the same bytes to the output dir.
+// MAKEFUN_OUTPUT_DIR stands in for /output when running outside the grader.
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -16,20 +10,25 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const repoRoot = fileURLToPath(new URL('.', import.meta.url));
 const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// Start from a clean slate so a stale file can never leak into the hand-in.
-rmSync(outDir, { recursive: true, force: true });
+// Clear only the CONTENTS of the output dir. The grader mounts /output as a
+// volume, so removing the dir itself would fail with EBUSY ("Device or
+// resource busy"). Removing each entry instead works on a mount point.
+if (existsSync(outDir)) {
+  for (const entry of readdirSync(outDir)) {
+    rmSync(join(outDir, entry), { recursive: true, force: true });
+  }
+}
 mkdirSync(outDir, { recursive: true });
 
+// Copy the game and its screenshots into the output dir. The dossier is
+// built from these copies, so what the grader reads is exactly what shipped.
 cpSync(join(repoRoot, 'game'), join(outDir, 'game'), { recursive: true });
-if (existsSync(join(repoRoot, 'screenshots'))) {
-  cpSync(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
+const screenshotsDir = join(repoRoot, 'screenshots');
+if (existsSync(screenshotsDir)) {
+  cpSync(screenshotsDir, join(outDir, 'screenshots'), { recursive: true });
 }
 
-// The dossier is built last, from the copied files themselves, so it always
-// describes exactly the bytes the grader will see — never the repository's
-// working copies. The caps mirror the gate's own limits (see the kit's
-// RULES.txt): at most four screenshots, each at most 256 KiB; game/ at most
-// 993 entries and 48 MiB; the dossier text at most 160 KiB.
+// Build the dossier LAST, from the copied files, and write it out.
 const dossier = buildDossier(outDir, {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
